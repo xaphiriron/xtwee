@@ -103,7 +103,7 @@ parseTemplate twee template = do
 
 loadTemplateSection :: TweeData -> String -> IO String
 loadTemplateSection t match
-	| match == "VERSION" = return "xtwee 1.0, w/ Twine core 1.4"
+	| match == "VERSION" = return "Made in xtwee 1.0, with Twine core 1.4"
 	| match == "STORY" = return $ _story t
 	| otherwise = do
 		let lmatch = toLower <$> match
