@@ -18,6 +18,17 @@ import Data.Array ((!), bounds, inRange)
 -- implemented: target, merge, help
 data Flags = Author | Merge | Plugin | Rss | Target | Help
 	deriving (Show, Read, Eq)
+data TweeData = TweeData
+	{ _envpath :: FilePath
+	, _target :: String
+	, _story :: String
+	}
+
+data TiddlerData = TiddlerData
+	{ _time :: String
+	, _author :: String
+	, _rss :: Bool
+	}
 
 main :: IO ()
 main = do
@@ -34,17 +45,24 @@ main = do
 				Just mergepath -> do
 					merge <- readFile $ concat [envpath, "/", mergepath]
 					putStrLn merge
-			let author = fromMaybe "twee" $ lookup Author opts
 			now <- getCurrentTime
-			let time = formatTime defaultTimeLocale "%Y%m%d%H%M" now
+			let tiddlerData = TiddlerData
+				{ _time = formatTime defaultTimeLocale "%Y%m%d%H%M" now
+				, _author = fromMaybe "twee" $ lookup Author opts
+				, _rss = isJust $ lookup Rss opts
+				}
 			story <- liftM concat .
-				fmap (fmap $ tiddle time author) .
+				fmap (fmap $ tiddle tiddlerData) .
 					sequence . fmap readFile $
 						files
-			let target = fromMaybe "jonah" $ lookup Target opts
+			let twee = TweeData
+				{ _envpath = envpath
+				, _target = fromMaybe "jonah" $ lookup Target opts
+				, _story = story
+				}
 			header <- readFile $
-				concat [envpath, "/targets/", target, "/header.html"]
-			template <- parseTemplate envpath target story header
+				concat [envpath, "/targets/", _target twee, "/header.html"]
+			template <- parseTemplate twee header
 			putStrLn template
 	where
 		options :: [OptDescr (Flags, String)]
@@ -68,37 +86,37 @@ explode b cs =
 	let (a, rs) = break (== b) cs
 	in a : if null rs then [] else explode b $ drop 1 rs
 
-parseTemplate :: FilePath -> String -> String -> String -> IO String
-parseTemplate envpath target story template = do
+parseTemplate :: TweeData -> String -> IO String
+parseTemplate twee template = do
 	let (prev, match, unparsed) = template =~ "\"([A-Z]+)\"" :: (String, String, String)
 	if null match
 		then return template
 		else
 			liftM mconcat . sequence $
 				[ return prev
-				, loadTemplateSection envpath target story $ dropWhileEnd (== '"') . dropWhile (== '"') $ match
-				, parseTemplate envpath target story unparsed
+				, loadTemplateSection twee $ dropWhileEnd (== '"') . dropWhile (== '"') $ match
+				, parseTemplate twee unparsed
 				]
 
-loadTemplateSection :: FilePath -> String -> String -> String -> IO String
-loadTemplateSection envpath target story match
+loadTemplateSection :: TweeData -> String -> IO String
+loadTemplateSection t match
 	| match == "VERSION" = return "xtwee 1.0, w/ Twine core 1.4"
-	| match == "STORY" = return story
+	| match == "STORY" = return $ _story t
 	| otherwise = do
 		let lmatch = toLower <$> match
-		dir <- doesDirectoryExist $ concat [envpath, "/targets/", lmatch]
-		file <- doesFileExist $ concat [envpath, "/targets/", target, "/", lmatch, ".js"]
-		genfile <- doesFileExist $ concat [envpath, "/targets/", lmatch, ".js"]
+		dir <- doesDirectoryExist $ concat [_envpath t, "/targets/", lmatch]
+		file <- doesFileExist $ concat [_envpath t, "/targets/", _target t, "/", lmatch, ".js"]
+		genfile <- doesFileExist $ concat [_envpath t, "/targets/", lmatch, ".js"]
 		case (dir, file, genfile) of
-			(True, _, _) -> readFile $ concat [envpath, "/targets/", lmatch, "/code.js"]
-			(_, True, _) -> readFile $ concat [envpath, "/targets/", target, "/", lmatch, ".js"]
-			(_, _, True) -> readFile $ concat [envpath, "/targets/", lmatch, ".js"]
+			(True, _, _, _) -> readFile $ concat [_envpath t, "/targets/", lmatch, "/code.js"]
+			(_, True, _, _) -> readFile $ concat [_envpath t, "/targets/", _target t, "/", lmatch, ".js"]
+			(_, _, True, _) -> readFile $ concat [_envpath t, "/targets/", lmatch, ".js"]
 			_ -> error $ "xtwee: no match to " ++ match ++ " in template file"
 
-tiddle :: String -> String -> String -> String
-tiddle now author s = concat
+tiddle :: TiddlerData -> String -> String
+tiddle t s = concat
 	[ "<div tiddler=\"untitled passage\">"
-	, joinLines . tiddle' now author . tiddlyEscape $ s
+	, joinLines . tiddle' t . tiddlyEscape $ s
 	, "</div>"
 	]
 	where
@@ -115,8 +133,8 @@ tiddlyEscape = concat . fmap escape
 
 -- this is terrifying garbage. there's a correct way to do this and this isn't it (this leads to: spurious empty "untitled passage" tiddlers; maybe other issues)
 -- todo: break story string into (title line, passage text) chunks, with anything before the first chunk living in an automatic "untitled passage" chunk, then `concat . fmap toTiddler` them. toTiddler would also give a good place to do all the escaping, rather than having to do it in two passes as current (b/c we have to escape html before writing our own html but we can't escape newlines until after we've used them to find the `::passage headers`)
-tiddle' :: String -> String -> String -> String
-tiddle' now author story =
+tiddle' :: TiddlerData -> String -> String
+tiddle' t story =
 	let (prev, match, unparsed) =
 		story =~ "^::([^\\|\\[]+)(\\s+\\[(.*)\\])?\\s*$" :: (String, MatchText String, String)
 	in
@@ -125,12 +143,12 @@ tiddle' now author story =
 			else
 				concat
 					[ prev
-					, tiddler now author match
-					, tiddle' now author $ drop 1 unparsed -- to strip the next newline (which we know matched b/c of the $ in the regex)
+					, tiddler t match
+					, tiddle' t . drop 1 $ unparsed -- to strip the next newline (which we know matched b/c of the $ in the regex)
 					]
 
-tiddler :: String -> String -> MatchText String -> String
-tiddler now author match =
+tiddler :: TiddlerData -> MatchText String -> String
+tiddler t match =
 	concat
 		[ "</div>"
 		, "<div tiddler=\""
@@ -140,10 +158,10 @@ tiddler now author match =
 			then fst $ match ! 3
 			else ""
 		, "\" modified=\""
-		, now
+		, _time t
 		, "\" created=\""
-		, now
+		, _time t
 		, "\" modifier=\""
-		, author
+		, _author t
 		, "\">"
 		]
