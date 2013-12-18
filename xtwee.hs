@@ -15,13 +15,14 @@ import System.Locale (defaultTimeLocale)
 import Text.Regex.Posix ((=~), MatchText)
 import Data.Array ((!), bounds, inRange)
 
--- implemented: target, merge, help
+-- implemented: author, merge, plugin (albeit w/ differences compared to the old twee functionality), target, help
 data Flags = Author | Merge | Plugin | Rss | Target | Help
 	deriving (Show, Read, Eq)
 data TweeData = TweeData
 	{ _envpath :: FilePath
 	, _target :: String
 	, _story :: String
+	, _plugins :: [String]
 	}
 
 data TiddlerData = TiddlerData
@@ -59,6 +60,8 @@ main = do
 				{ _envpath = envpath
 				, _target = fromMaybe "jonah" $ lookup Target opts
 				, _story = story
+				, _plugins = ("engine" :) . explode ',' .
+					fromMaybe "" $ lookup Plugin opts
 				}
 			header <- readFile $
 				concat [envpath, "/targets/", _target twee, "/header.html"]
@@ -107,8 +110,9 @@ loadTemplateSection t match
 		dir <- doesDirectoryExist $ concat [_envpath t, "/targets/", lmatch]
 		file <- doesFileExist $ concat [_envpath t, "/targets/", _target t, "/", lmatch, ".js"]
 		genfile <- doesFileExist $ concat [_envpath t, "/targets/", lmatch, ".js"]
-		case (dir, file, genfile) of
+		case (dir, file, genfile, lmatch `elem` _plugins t) of
 			(True, _, _, _) -> readFile $ concat [_envpath t, "/targets/", lmatch, "/code.js"]
+			(_, _, _, False) -> return "" -- plugin disabled
 			(_, True, _, _) -> readFile $ concat [_envpath t, "/targets/", _target t, "/", lmatch, ".js"]
 			(_, _, True, _) -> readFile $ concat [_envpath t, "/targets/", lmatch, ".js"]
 			_ -> error $ "xtwee: no match to " ++ match ++ " in template file"
