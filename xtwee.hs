@@ -89,6 +89,9 @@ explode b cs =
 	let (a, rs) = break (== b) cs
 	in a : if null rs then [] else explode b $ drop 1 rs
 
+trim :: [Char] -> String -> String
+trim rm = dropWhileEnd (`elem` rm) . dropWhile (`elem` rm)
+
 parseTemplate :: TweeData -> String -> IO String
 parseTemplate twee template = do
 	let (prev, match, unparsed) = template =~ "\"([A-Z]+)\"" :: (String, String, String)
@@ -118,49 +121,35 @@ loadTemplateSection t match
 			_ -> error $ "xtwee: no match to " ++ match ++ " in template file"
 
 tiddle :: TiddlerData -> String -> String
-tiddle t s = concat
-	[ "<div tiddler=\"untitled passage\">"
-	, joinLines . tiddle' t . tiddlyEscape $ s
-	, "</div>"
-	]
-	where
-		joinLines =
-			concat . fmap (\c -> if c == '\n' then "\\n" else pure c)
+tiddle t s = cohere t . chunk $ s
 
-tiddlyEscape :: String -> String
-tiddlyEscape = concat . fmap escape
-	where
-		escape '<' = "&lt;"
-		escape '>' = "&gt;"
-		escape '"' = "&quot;"
-		escape c = pure c
-
--- this is terrifying garbage. there's a correct way to do this and this isn't it (this leads to: spurious empty "untitled passage" tiddlers; maybe other issues)
--- todo: break story string into (title line, passage text) chunks, with anything before the first chunk living in an automatic "untitled passage" chunk, then `concat . fmap toTiddler` them. toTiddler would also give a good place to do all the escaping, rather than having to do it in two passes as current (b/c we have to escape html before writing our own html but we can't escape newlines until after we've used them to find the `::passage headers`)
-tiddle' :: TiddlerData -> String -> String
-tiddle' t story =
+chunk :: String -> [Either (MatchText String) String]
+chunk story =
 	let (prev, match, unparsed) =
 		story =~ "^::([^\\|\\[]+)(\\s+\\[(.*)\\])?\\s*$" :: (String, MatchText String, String)
 	in
-		if bounds match == (1, 0)
-			then story
-			else
-				concat
-					[ prev
-					, tiddler t match
-					, tiddle' t . drop 1 $ unparsed -- to strip the next newline (which we know matched b/c of the $ in the regex)
-					]
+		if bounds match == (1, 0) -- no matches left
+			then Right story : []
+			else if null prev
+				then Left match : chunk unparsed
+				else Right prev : Left match : chunk unparsed
 
-tiddler :: TiddlerData -> MatchText String -> String
-tiddler t match =
+cohere :: TiddlerData -> [Either (MatchText String) String] -> String
+cohere _ [] = ""
+cohere t (Left match:Right content:rs) =
+	toTiddly t (Just match) content ++ cohere t rs
+cohere t (Right stranded:rs) =
+	toTiddly t Nothing stranded ++ cohere t rs
+cohere t (Left match:rs) =
+	toTiddly t (Just match) "" ++ cohere t rs
+
+toTiddly :: TiddlerData -> Maybe (MatchText String) -> String -> String
+toTiddly t mmatch content =
 	concat
-		[ "</div>"
-		, "<div tiddler=\""
-		, fst $ match ! 1
+		[ "<div tiddler=\""
+		, title
 		, "\" tags=\""
-		, if bounds match `inRange` 3
-			then fst $ match ! 3
-			else ""
+		, tags
 		, "\" modified=\""
 		, _time t
 		, "\" created=\""
@@ -168,4 +157,23 @@ tiddler t match =
 		, "\" modifier=\""
 		, _author t
 		, "\">"
+		, tiddlyEscape . trim "\n\t\r " $ content
+		, "</div>"
 		]
+	where
+		(title, tags) = case mmatch of
+			Nothing -> ("untitled passage", "")
+			Just match ->
+				( fst $ match ! 1
+				, if bounds match `inRange` 3
+					then fst $ match ! 3
+					else ""
+				)
+		tiddlyEscape :: String -> String
+		tiddlyEscape = concat . fmap escape
+			where
+				escape '<' = "&lt;"
+				escape '>' = "&gt;"
+				escape '"' = "&quot;"
+				escape '\n' = "\\n"
+				escape c = pure c
