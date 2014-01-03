@@ -46,11 +46,10 @@ main = do
 		(True, _) -> putStrLn $ usageInfo (intercalate "\n" errs) options
 		(_, True) -> putStrLn "xtwee: no source files specified"
 		_ -> do
-			case lookup Merge opts of
-				Nothing -> return ()
+			merge <- case lookup Merge opts of
+				Nothing -> return ""
 				Just mergepath -> do
-					merge <- readFile $ concat [envpath, "/", mergepath]
-					putStrLn merge
+					readFile $ concat [envpath, "/", mergepath]
 			now <- getCurrentTime
 			let tiddlerData = TiddlerData
 				{ _time = formatTime defaultTimeLocale "%Y%m%d%H%M" now
@@ -71,7 +70,7 @@ main = do
 			header <- readFile $
 				concat [envpath, "/targets/", _target twee, "/header.html"]
 			template <- parseTemplate twee header
-			putStrLn template
+			putStrLn $ merge ++ template
 	where
 		options :: [OptDescr (Flags, String)]
 		options =
