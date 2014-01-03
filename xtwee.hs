@@ -145,21 +145,23 @@ cohere t (Left match:rs) =
 
 toTiddly :: TiddlerData -> Maybe (MatchText String) -> String -> String
 toTiddly t mmatch content =
-	concat
-		[ "<div tiddler=\""
-		, title
-		, "\" tags=\""
-		, tags
-		, "\" modified=\""
-		, _time t
-		, "\" created=\""
-		, _time t
-		, "\" modifier=\""
-		, _author t
-		, "\">"
-		, tiddlyEscape . trim "\n\t\r " $ content
-		, "</div>"
-		]
+	if "Twine.private" `elem` words tags
+		then ""
+		else concat
+			[ "<div tiddler=\""
+			, title
+			, "\" tags=\""
+			, tags
+			, "\" modified=\""
+			, _time t
+			, "\" created=\""
+			, _time t
+			, "\" modifier=\""
+			, _author t
+			, "\">"
+			, tiddlyEscape . trim "\n\t\r " $ content
+			, "</div>"
+			]
 	where
 		(title, tags) = case mmatch of
 			Nothing -> ("untitled passage", "")
