@@ -1,23 +1,28 @@
 module Main (main) where
 
+import Control.Applicative
+import Control.Monad (liftM)
+import Data.Maybe (fromMaybe, isJust)
+import Data.Monoid (mconcat)
+
 import System.Environment (getArgs)
 import System.Environment.Executable (getExecutablePath)
 import System.Console.GetOpt
 import System.Directory (doesDirectoryExist, doesFileExist)
-import Control.Applicative
-import Control.Monad (liftM)
 import Data.List (intercalate, dropWhileEnd)
-import Data.Maybe (fromMaybe)
-import Data.Monoid (mconcat)
 import Data.Char (toLower)
-import Data.Time
+
+import Data.Time (formatTime, getCurrentTime)
 import System.Locale (defaultTimeLocale)
+
 import Text.Regex.Posix ((=~), MatchText)
 import Data.Array ((!), bounds, inRange)
 
 -- implemented: author, merge, plugin (albeit w/ differences compared to the old twee functionality), target, help
+-- todo, from Twine 1.4: -o --obfuscate
 data Flags = Author | Merge | Plugin | Rss | Target | Help
-	deriving (Show, Read, Eq)
+	deriving (Eq)
+
 data TweeData = TweeData
 	{ _envpath :: FilePath
 	, _target :: String
@@ -100,7 +105,7 @@ parseTemplate twee template = do
 		else
 			liftM mconcat . sequence $
 				[ return prev
-				, loadTemplateSection twee $ dropWhileEnd (== '"') . dropWhile (== '"') $ match
+				, loadTemplateSection twee . trim "\"" $ match
 				, parseTemplate twee unparsed
 				]
 
@@ -129,7 +134,7 @@ chunk story =
 		story =~ "^::([^\\|\\[]+)(\\s+\\[(.*)\\])?\\s*$" :: (String, MatchText String, String)
 	in
 		if bounds match == (1, 0) -- no matches left
-			then Right story : []
+			then [Right story]
 			else if null prev
 				then Left match : chunk unparsed
 				else Right prev : Left match : chunk unparsed
