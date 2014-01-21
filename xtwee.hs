@@ -130,7 +130,7 @@ tiddle t s = cohere t . chunk $ s
 chunk :: String -> [Either (MatchText String) String]
 chunk story =
 	let (prev, match, unparsed) =
-		story =~ "^::([^\\|\\[]+)(\\s+\\[(.*)\\])?\\s*$" :: (String, MatchText String, String)
+		story =~ "^::([^\\|\\[]+)([ \\t]+\\[(.*)\\])?[ \\t]*$" :: (String, MatchText String, String)
 	in
 		if bounds match == (1, 0) -- no matches left
 			then [Right story]
