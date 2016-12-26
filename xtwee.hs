@@ -14,26 +14,21 @@ import Data.Char (toLower)
 
 import Data.Time (formatTime, getCurrentTime, defaultTimeLocale)
 
+import qualified Data.Set as Set
+import Text.Parsec (ParseError)
+
 import Text.Regex.Posix ((=~), MatchText)
 import Data.Array ((!), bounds, inRange)
+
+import Types
+import Parser
+
+import Debug.Trace
 
 -- implemented: author, merge, plugin (albeit w/ differences compared to the old twee functionality), target, help
 -- todo, from Twine 1.4: -o --obfuscate
 data Flags = Author | Merge | Plugin | Rss | Target | Help
 	deriving (Eq)
-
-data TweeData = TweeData
-	{ _envpath :: FilePath
-	, _target :: String
-	, _story :: String
-	, _plugins :: [String]
-	}
-
-data TiddlerData = TiddlerData
-	{ _time :: String
-	, _author :: String
-	, _rss :: Bool
-	}
 
 main :: IO ()
 main = do
@@ -55,21 +50,23 @@ main = do
 				, _author = fromMaybe "twee" $ lookup Author opts
 				, _rss = isJust $ lookup Rss opts
 				}
-			story <- liftM concat .
-				fmap (fmap $ tiddle tiddlerData) .
-					sequence . fmap readFile $
-						files
-			let twee = TweeData
-				{ _envpath = envpath
-				, _target = fromMaybe "jonah" $ lookup Target opts
-				, _story = story
-				, _plugins = ("engine" :) . explode ',' .
-					fromMaybe "" $ lookup Plugin opts
-				}
-			header <- readFile $
-				concat [envpath, "/targets/", _target twee, "/header.html"]
-			template <- parseTemplate twee header
-			putStrLn $ merge ++ template
+
+			mstory <- processFiles tiddlerData files
+
+			case mstory of
+				Left err -> putStrLn $ show err
+				Right story -> do
+					let twee = TweeData
+						{ _envpath = envpath
+						, _target = fromMaybe "jonah" $ lookup Target opts
+						, _story = story
+						, _plugins = ("engine" :) . explode ',' .
+							fromMaybe "" $ lookup Plugin opts
+						}
+					header <- readFile $
+						concat [envpath, "/targets/", _target twee, "/header.html"]
+					template <- parseTemplate twee header
+					putStrLn $ merge ++ template
 	where
 		options :: [OptDescr (Flags, String)]
 		options =
@@ -86,6 +83,13 @@ main = do
 			, Option [] ["help"] (NoArg (Help, []))
 				"this help string"
 			]
+
+processFiles :: TiddlerData -> [FilePath] -> IO (Either ParseError String)
+processFiles tiddlerData files = do
+	fileData <- sequence (readFile <$> files)
+	return $ (\tweeData -> toTiddlyHtml tiddlerData =<< concat tweeData) <$>
+		(sequence $ uncurry parseTweeFile <$> zip files fileData)
+
 
 explode :: Eq a => a -> [a] -> [[a]]
 explode b cs =
@@ -123,60 +127,29 @@ loadTemplateSection t match
 			(_, _, True, _) -> readFile $ concat [_envpath t, "/targets/", lmatch, ".js"]
 			_ -> error $ "xtwee: no match to " ++ match ++ " in template file"
 
-tiddle :: TiddlerData -> String -> String
-tiddle t s = cohere t . chunk $ s
-
-chunk :: String -> [Either (MatchText String) String]
-chunk story =
-	let (prev, match, unparsed) =
-		story =~ "^::([^\\|\\[]+)([ \\t]+\\[(.*)\\])?[ \\t]*$" :: (String, MatchText String, String)
-	in
-		if bounds match == (1, 0) -- no matches left
-			then [Right story]
-			else if null prev
-				then Left match : chunk unparsed
-				else Right prev : Left match : chunk unparsed
-
-cohere :: TiddlerData -> [Either (MatchText String) String] -> String
-cohere _ [] = ""
-cohere t (Left match:Right content:rs) =
-	toTiddly t (Just match) content ++ cohere t rs
-cohere t (Right stranded:rs) =
-	toTiddly t Nothing stranded ++ cohere t rs
-cohere t (Left match:rs) =
-	toTiddly t (Just match) "" ++ cohere t rs
-
-toTiddly :: TiddlerData -> Maybe (MatchText String) -> String -> String
-toTiddly t mmatch content =
-	if "Twine.private" `elem` words tags
-		then ""
-		else concat
-			[ "<div tiddler=\""
-			, title
-			, "\" tags=\""
-			, tags
-			, "\" modified=\""
-			, _time t
-			, "\" created=\""
-			, _time t
-			, "\" modifier=\""
-			, _author t
-			, "\">"
-			, tiddlyEscape . trim "\n\t\r " $ content
-			, "</div>"
-			]
+toTiddlyHtml :: TiddlerData -> TweePassage -> String
+toTiddlyHtml t (TweePassage (TweeHeader title tags) content) = if "Twine.private" `elem` tags
+	then ""
+	else concat
+		[ "<div tiddler=\""
+		, title
+		, "\" tags=\""
+		, unwords $ Set.toList tags
+		, "\" modified=\""
+		, _time t
+		, "\" created=\""
+		, _time t
+		, "\" modifier=\""
+		, _author t
+		, "\">"
+		, tiddlyEscape . trim "\n\t\r" $ content
+		, "</div>"
+		]
 	where
-		(title, tags) = case mmatch of
-			Nothing -> ("untitled passage", "")
-			Just match ->
-				( fst $ match ! 1
-				, if bounds match `inRange` 3
-					then fst $ match ! 3
-					else ""
-				)
 		tiddlyEscape :: String -> String
-		tiddlyEscape = concat . fmap escape
+		tiddlyEscape = (escape =<<)
 			where
+				escape :: Char -> [Char]
 				escape '<' = "&lt;"
 				escape '>' = "&gt;"
 				escape '"' = "&quot;"
