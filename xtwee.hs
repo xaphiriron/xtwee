@@ -12,8 +12,7 @@ import System.Directory (doesDirectoryExist, doesFileExist)
 import Data.List (intercalate, dropWhileEnd)
 import Data.Char (toLower)
 
-import Data.Time (formatTime, getCurrentTime)
-import System.Locale (defaultTimeLocale)
+import Data.Time (formatTime, getCurrentTime, defaultTimeLocale)
 
 import Text.Regex.Posix ((=~), MatchText)
 import Data.Array ((!), bounds, inRange)
