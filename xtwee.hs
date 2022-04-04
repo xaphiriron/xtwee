@@ -165,8 +165,8 @@ inlineScript (TweePassage (TweeHeader title tags) text) = mconcat
 	]
 
 loadTemplateSection :: TweeData -> String -> IO String
-loadTemplateSection t match
-	| match == "VERSION" = return "Made in xtwee 1.0, with Twine core 1.4"
+loadTemplateSection t match -- =
+	| match == "VERSION" = return "Made in xtwee 1.1, with Twine core 1.4"
 	| match == "STORY" = return $ _story t
 	| match == "INLINESCRIPTS" = let scriptPassages = Map.filter (\p -> hasTag "script" p && not (hasTag "no-inline" p)) $ _passages t
 		in return $ Map.foldr (\c acc -> inlineScript c <> acc) "" scriptPassages

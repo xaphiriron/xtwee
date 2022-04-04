@@ -21,6 +21,8 @@ cabal-version:       >=1.10
 
 executable xtwee
   main-is:             xtwee.hs
+  other-modules:       Parser
+                       Types
   ghc-options:         -fwarn-incomplete-patterns
                        -fwarn-incomplete-uni-patterns
                        -fno-warn-tabs
@@ -29,8 +31,8 @@ executable xtwee
                        time,
                        directory,
                        executable-path,
-                       array == 0.5.*,
-                       regex-posix == 0.95.*
-                       parsec == 3.1.11,
-                       containers == 0.5.6.2
+                       array,
+                       regex-posix,
+                       parsec,
+                       containers
   default-language:    Haskell2010
