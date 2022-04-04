@@ -4,6 +4,8 @@ module Parser
 	( parseTweeFile
 	) where
 
+import Prelude hiding (words)
+
 import Text.Parsec hiding (spaces)
 import qualified Text.Parsec as Parsec (spaces)
 
@@ -27,12 +29,15 @@ tiddler = TweePassage
 
 header :: Stream s m Char => ParsecT s u m TweeHeader
 header = TweeHeader
-	<$> (string "::" *> word)
+	<$> (trim " " <$> (string "::" *> words))
 	<*> (spaces *> (fromMaybe mempty <$> optionMaybe tags))
 
 tags :: Stream s m Char => ParsecT s u m (Set String)
 tags = fmap Set.fromList $ between (char '[') (char ']')
 	$ (many1 $ noneOf " \n\t\r]") `sepBy` (many $ oneOf " \t")
+
+words :: Stream s m Char => ParsecT s u m String
+words = many1 $ noneOf "\n\t\r["
 
 word :: Stream s m Char => ParsecT s u m String
 word = many1 $ noneOf " \n\t\r"
