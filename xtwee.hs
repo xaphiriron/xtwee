@@ -15,6 +15,8 @@ import Data.Char (toLower)
 import Data.Time (formatTime, getCurrentTime, defaultTimeLocale)
 
 import qualified Data.Set as Set
+import qualified Data.Map as Map
+import Data.Map (Map)
 import Text.Parsec (ParseError)
 
 import Text.Regex.Posix ((=~), MatchText)
@@ -51,20 +53,27 @@ main = do
 				, _rss = isJust $ lookup Rss opts
 				}
 
-			mstory <- processFiles tiddlerData files
+			mpassages <- loadPassages files
 
-			case mstory of
+			case mpassages of
 				Left err -> putStrLn $ show err
-				Right story -> do
+				Right passageList -> do
+					let passages = passageMap passageList
+					let target = fromMaybe "jonah" $ lookup Target opts
+					header <- readFile $
+						concat [envpath, "/targets/", target, "/header.html"]
+					-- if we're inlining scripts, don't also include them in the tiddler output
+					let story = renderHtml tiddlerData $ if hasTemplate "INLINESCRIPTS" header
+						then filter (\p -> not (hasTag "script" p && not (hasTag "no-inline" p))) passageList
+						else passageList
 					let twee = TweeData
 						{ _envpath = envpath
-						, _target = fromMaybe "jonah" $ lookup Target opts
+						, _target = target
 						, _story = story
+						, _passages = passages
 						, _plugins = ("engine" :) . explode ',' .
 							fromMaybe "" $ lookup Plugin opts
 						}
-					header <- readFile $
-						concat [envpath, "/targets/", _target twee, "/header.html"]
 					template <- parseTemplate twee header
 					putStrLn $ merge ++ template
 	where
@@ -84,12 +93,38 @@ main = do
 				"this help string"
 			]
 
+hasTemplate :: String -> String -> Bool
+hasTemplate check header = let (prev, match, unparsed) = header =~ ("\"(" <> check <> ")\"") :: (String, String, String)
+	in not $ null match
+
+loadPassages :: [FilePath] -> IO (Either ParseError [TweePassage])
+loadPassages files = do
+	fileData <- sequence (readFile <$> files)
+	return $ fmap concat $ sequence $ uncurry parseTweeFile <$> zip files fileData
+
+passageMap :: [TweePassage] -> Map String TweePassage
+passageMap passages = mconcat $ uncurry Map.singleton . (\passage@(TweePassage (TweeHeader title _) _) -> (title, passage)) <$> passages
+
+renderHtml :: TiddlerData -> [TweePassage] -> String
+renderHtml tiddlerData passages = toTiddlyHtml tiddlerData =<< passages
+
+processFiles :: TiddlerData -> [FilePath] -> IO (Either ParseError String)
+processFiles tiddlerData files = do
+	res <- loadPassages files
+	return $ do
+		passages <- res
+		return $ renderHtml tiddlerData passages
+
+hasTag :: String -> TweePassage -> Bool
+hasTag tag (TweePassage (TweeHeader _ tags) _) = Set.member tag tags
+
+{-
 processFiles :: TiddlerData -> [FilePath] -> IO (Either ParseError String)
 processFiles tiddlerData files = do
 	fileData <- sequence (readFile <$> files)
 	return $ (\tweeData -> toTiddlyHtml tiddlerData =<< concat tweeData) <$>
 		(sequence $ uncurry parseTweeFile <$> zip files fileData)
-
+-}
 
 explode :: Eq a => a -> [a] -> [[a]]
 explode b cs =
@@ -111,10 +146,30 @@ parseTemplate twee template = do
 				, parseTemplate twee unparsed
 				]
 
+inlineScript :: TweePassage -> String
+inlineScript (TweePassage (TweeHeader title tags) text) = mconcat
+	[ "<script type=\"text/javascript\" tiddler=\"" <> title <> "\""
+	, if Set.size tags > 1
+		then " class=\"" <> (unwords $ Set.toList $ Set.filter (== "script") tags) <> "\""
+		else ""
+	, ">\n"
+	, "\twindow.addEventListener(\"load\", function () {\n"
+	, "\t\ttry {\n"
+	, (unlines . fmap (\line -> if null line then line else "\t\t\t" <> line) . lines $ text) <> "\n"
+	, "\t\t} catch (e) {\n"
+	, "\t\t\tconsole.log (e);\n"
+	, "\t\t\talert(\"There is a technical problem with this story (" <> title <> ": \"+e.message+\"). You may be able to continue reading, but parts of the story may not work properly.\");\n"
+	, "\t\t}\n"
+	, "\t});\n"
+	, "</script>\n"
+	]
+
 loadTemplateSection :: TweeData -> String -> IO String
 loadTemplateSection t match
 	| match == "VERSION" = return "Made in xtwee 1.0, with Twine core 1.4"
 	| match == "STORY" = return $ _story t
+	| match == "INLINESCRIPTS" = let scriptPassages = Map.filter (\p -> hasTag "script" p && not (hasTag "no-inline" p)) $ _passages t
+		in return $ Map.foldr (\c acc -> inlineScript c <> acc) "" scriptPassages
 	| otherwise = do
 		let lmatch = toLower <$> match
 		dir <- doesDirectoryExist $ concat [_envpath t, "/targets/", lmatch]

@@ -5,6 +5,7 @@ module Types
 	, TiddlerData(..)
 	) where
 
+import Data.Map (Map)
 import Data.Set (Set)
 
 data TweeHeader = TweeHeader String (Set String)
@@ -16,6 +17,7 @@ data TweeData = TweeData
 	{ _envpath :: FilePath
 	, _target :: String
 	, _story :: String
+	, _passages :: Map String TweePassage
 	, _plugins :: [String]
 	}
 	deriving (Eq, Ord, Show, Read)
