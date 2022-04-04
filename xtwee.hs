@@ -122,7 +122,8 @@ loadTemplateSection t match
 		genfile <- doesFileExist $ concat [_envpath t, "/targets/", lmatch, ".js"]
 		case (dir, file, genfile, lmatch `elem` _plugins t) of
 			(True, _, _, _) -> readFile $ concat [_envpath t, "/targets/", lmatch, "/code.js"]
-			(_, _, _, False) -> return "" -- plugin disabled
+			-- this returns the literal string, which prevents issues if there's a literal "FOO" string in the header (in, e.g., javascript code)
+			(_, _, _, False) -> return ("\"" <> match <> "\"") -- return "" -- plugin disabled
 			(_, True, _, _) -> readFile $ concat [_envpath t, "/targets/", _target t, "/", lmatch, ".js"]
 			(_, _, True, _) -> readFile $ concat [_envpath t, "/targets/", lmatch, ".js"]
 			_ -> error $ "xtwee: no match to " ++ match ++ " in template file"
